@@ -71,18 +71,37 @@ module BaseAST = struct
 end
 
 
-(**
-   Vérificateur de types.
- **)
+(*******
+ * Vérificateur de types.
+ *******)
 module BaseTypeChecker = struct
   open SimpleTypes
   open BaseAST
   exception Bad_type of string 
   module Env = Map.Make(String)
   type type_env = SimpleTypes.typ Env.t
-
-                
-
+	
+  (* opération -> type des opérations 
+	+ Fonction 'get' (prenant le compteur en paramètre) générant un nouveau type si nécessaire 
+    
+	Opérateurs :
+		+ -
+		= < >
+		&& || 
+		... ? 
+	*) 
+	let get_op_type op cpt_type = 
+		match op with 
+		| "+" -> TFun(TInt, TFun(TInt, TInt))
+		| "=" 
+		| "<" 
+		| ">"
+			-> 	let t = TVar(cpt_type()) in 
+				TFun(t, TFun(t, TBool))  
+		| "&&" 
+		| "||" 
+			-> TFun(TBool, TFun(TBool, TBool)) 
+  
   let rec type_expression (env: type_env) (e: expression) : typ =
     match e with
     | Int(_) -> TInt
@@ -92,7 +111,7 @@ module BaseTypeChecker = struct
     | App(e1, e2) -> let t1, t2 = type_expression env e1, type_expression env e2 in
                      begin
                        match t1 with
-                       | TFun(tparam, tret) -> if tparam = t2
+                       | TFun(tparam, tret) -> if tparam = t2 (* Ici : gérer les variables de type relevenat des opérateurs quand nécessaire *) 
                                                then tret
                                                else raise (Bad_type("Mauvais type de param"))
                        | _ -> raise (Bad_type("Application d'une valeur non fonctionnelle"))
@@ -102,11 +121,7 @@ module BaseTypeChecker = struct
                                       TFun(type_var, nouveau_type)
     | Let(nom_var, e1, e2) -> let type_var = type_expression env e1 in
                               type_expression (Env.add nom_var type_var env) e2
-    | Op(str) ->
-       begin
-         match str with
-         | _ -> failwith "flemme" 
-       end
+    | Op(str) -> failwith "flemme" 
     | Pair(e1, e2) -> TPair(type_expression env e1, type_expression env e2)
     | NewRef(e) -> TRef(type_expression env e)
     | Sequence(e1, e2) -> let type_e1 = type_expression env e1 in (* type_e1 ?= () *) 
@@ -125,7 +140,8 @@ module BaseTypeChecker = struct
                           TUnit
                      else raise (Bad_type("Condition non bool dans le while"))
 end
-                                          
+
+
 (** 
     Exercice 2 : inférence des types simples.
 
@@ -191,6 +207,11 @@ module BaseTypeReconstruction = struct
   type t_contrainte = SimpleTypes.typ * SimpleTypes.typ (* None = Tout type *) 
 
   module CSet = Set.Make(struct type t = t_contrainte let compare = compare end)
+
+  let type_operateur mk_cpt op =
+	match op with 
+	| _ -> failwith "pas implémenté" 
+
 
   (* fonction de création d'un compteur *) 
   let mk_cpt_vt () =
@@ -515,7 +536,7 @@ module PTypeChecker = struct
 
       let cset_map f cset = CSet.fold (fun c cset -> CSet.add (f c) cset) cset CSet.empty in
       let constraints_map f = (constraints := cset_map f (!constraints)) in
-      
+     
       let rm ct = constraints := CSet.remove ct (!constraints) in
       let add ct = constraints := CSet.add ct (!constraints) in
 
@@ -588,12 +609,7 @@ module PTypeChecker = struct
     resolution_contraintes cset t
 end
 
-
-
 (* exo 3 *)
-
-
-             
 
 (**
    Exercice 3 : sous-typage.
@@ -604,6 +620,7 @@ end
 
    On a donc la relation de sous-typage [T <: T?], de laquelle on déduit
    une relation plus générale avec les règles habituelles.
+	T sous-type de T-Question
 *)
 module OptionTypes = struct
 
@@ -636,7 +653,6 @@ module SubAST = struct
     | Int    of int    (** Entier [n]    *)
     | Bool   of bool   (** Booléen [b]   *)
     | Unit             (** Unité [()]    *)
-    | Var    of string (** Variable  [x] *)
     | App    of expression * expression
                        (** Application [e₁ e₂] *)
     | Fun    of string * OptionTypes.typ * expression
@@ -667,11 +683,61 @@ end
    On ajoutera les particularités suivantes :
    - Tout opérateur travaillant sur des valeurs concrètes nécessitera des
      opérandes dont le type *n'est pas* un type optionnel.
-   - Dans une expression de la forme [if isNull a then e₁ else e₂] avec [a] de
+   - Dans une expression de la forme [if isNull(a) then e1 else e2] avec [a] de
      type [T?], on pourra donner à [a] le type [T] dans la branche [e₂].
-*)
+**)
 module SubTypeChecker = struct
+  open OptionTypes
+  open SubAST
   
-  
+  module Env = Map.Make(String)
+  type type_env = typ Env.t
+
+	let is_subtype t1 t2 =
+	failwith "to do" 
+  let type_expression env expr = 
+	let rec t_exp env exp = 
+		match exp with 
+		| Int(_) -> TInt
+		| Bool -> TBool
+		| Unit -> TUnit 
+		| Var(v) -> Env.find e env 
+		| App(e1, e2) 
+			-> 	let t1 = t_exp env e1 in
+				let t2 = t_exp env e2 in 
+				let (t_param, t_retour) = 
+					match t1 with
+					| TFun(tp, tret) -> (tp, tret) 
+					| _ -> failwith "eugneu mauvais types" 
+					in
+				if t_param = t1 || is_subtype t2 t_param 
+				then t_retour
+				else failwith "Mauvais type"
+		| Fun(id, t_param, e) 
+			-> 	TFun(t_param, t_exp (Env.add id t_param env)) 
+		| Let(id, e1, e2) -> t_exp (Env.add id (t_exp env e1) env) e2  
+		| Op(op) -> failwith "pas implémenté" 
+		| Pair(e1, e2) -> let f = t_exp env in TPair(f e1, f e2)  
+		| NewRef(e) -> TRef(t_exp env e) 
+		| Sequence(e1, e2) 
+			-> 	let f = t_exp env in 
+				let t1, t2 = f e1, f e2 in 
+				if t1 = TUnit 
+				then t2 
+				else failwith "mauvais type" 
+		| If(cond, e1, e2)  (*peut-être une exn dans le cas isNull() *)
+			->	let f = t_exp env in 
+				let tc, t1, t2 = f cond, f e1, f e2 in 
+				if tc = TBool && t1 = t2 (* pê prendre le cas de t1 sous-type de t2 *) 
+				then t1 
+				else failwith "mauvais type"
+		| While(cond, e) 
+			->	let tc, t = t_exp env cond, t_exp env e in
+				if tc = TBool && t = TUnit 
+				then TUnit
+				else failwith "mal typé" 
+		
+	in
+	failwith "pas implémenté" 
 end
 
