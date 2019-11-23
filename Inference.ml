@@ -667,7 +667,6 @@ end
    est indéfinie.
 *)
 module SubAST = struct
-
   type expression =
     | Int    of int    (** Entier [n]    *)
     | Bool   of bool   (** Booléen [b]   *)
@@ -701,9 +700,9 @@ end
 
    On ajoutera les particularités suivantes :
    - Tout opérateur travaillant sur des valeurs concrètes nécessitera des
-     opérandes dont le type *n'est pas* un type optionnel.
+	opérandes dont le type *n'est pas* un type optionnel.
    - Dans une expression de la forme [if isNull(a) then e1 else e2] avec [a] de
-     type [T?], on pourra donner à [a] le type [T] dans la branche [e₂].
+    type [T?], on pourra donner à [a] le type [T] dans la branche [e2].
 **)
 module SubTypeChecker = struct
   open OptionTypes
@@ -711,8 +710,16 @@ module SubTypeChecker = struct
   
   module Env = Map.Make(String)
   type type_env = typ Env.t
+  
+  (* renvoie true si t1 <= t2 *)
+  (* probablement de la merde *)
   let is_subtype t1 t2 = 
-	failwith "to do" 
+	if t1 = t2 
+	then true 
+	else match t2 with
+		| TMaybe(t) -> is_subtype t1 t 
+		| _ -> false 
+
   let type_expression env expr = 
 	let rec t_exp env exp = 
 		match exp with 
@@ -721,40 +728,56 @@ module SubTypeChecker = struct
 		| Unit -> TUnit 
 		| Var(v) -> Env.find e env 
 		| App(e1, e2)
-			-> 	let t1 = t_exp env e1 in
-				let t2 = t_exp env e2 in 
-				let (t_param, t_retour) = 
-					match t1 with
-					| TFun(tp, tret) -> (tp, tret) 
-					| _ -> failwith "eugneu mauvais types" 
-					in
-				if t_param = t1 || is_subtype t2 t_param 
-				then t_retour
-				else failwith "Mauvais type"
-		| Fun(id, t_param, e) 
-			-> 	TFun(t_param, t_exp (Env.add id t_param env)) 
+		-> 	let t2 = t_exp env e2 in 
+			let t1 =
+				match e1 with 
+				| Op(s) 
+				->(	match s with
+					| "+" -> TFun(TInt, TFun(TInt, TInt))
+					| "&&" | "||" -> TFun(TFun(TBool, TBool))
+					| "=" | "<"   -> TFun(t2, TFun(t2, TBool))
+					| "deref"
+					-> failwith "je sais pas ce que c'est censé faire" 
+					| ":="
+					->	let t2value = match t2 with | TRef(t) -> t | _ -> failwith "patate" in  
+						TFun(t2, TFun(t2', TUnit))
+					| _ -> failwith "todo : autres opérateurs" 
+				)
+				| _ -> type_expression env e1 
+				in
+			let (t_param, t_retour) = 
+				match t1 with
+				| TFun(tp, tret) -> (tp, tret)
+				| _ -> failwith "eugneu mauvais types" 
+				in
+			if t_param = t1 || is_subtype t2 t_param
+			then t_retour
+			else failwith "Mauvais type"
+		| Fun(id, t_param, e)
+		->	TFun(t_param, t_exp (Env.add id t_param env)) 
 		| Let(id, e1, e2) -> t_exp (Env.add id (t_exp env e1) env) e2  
 		| Op(op) -> failwith "pas implémenté" 
-		| Pair(e1, e2) -> let f = t_exp env in TPair(f e1, f e2)  
-		| NewRef(e) -> TRef(t_exp env e) 
-		| Sequence(e1, e2) 
-			-> 	let f = t_exp env in 
-				let t1, t2 = f e1, f e2 in 
-				if t1 = TUnit 
-				then t2 
-				else failwith "mauvais type" 
-		| If(cond, e1, e2)  (*peut-être une exn dans le cas isNull() *)
-			->	let f = t_exp env in 
-				let tc, t1, t2 = f cond, f e1, f e2 in 
-				if tc = TBool && t1 = t2 (* pê prendre le cas de t1 sous-type de t2 *) 
-				then t1 
-				else failwith "mauvais type"
-		| While(cond, e) 
-			->	let tc, t = t_exp env cond, t_exp env e in
-				if tc = TBool && t = TUnit 
-				then TUnit
-				else failwith "mal typé" 
-		
+		| Pair(e1, e2) 
+		-> 	let f = t_exp env 
+			in TPair(f e1, f e2) 
+		| NewRef(t) -> TRef(TMaybe(t))
+		| Sequence(e1, e2)
+		-> 	let f = t_exp env in 
+			let t1, t2 = f e1, f e2 in 
+			if t1 = TUnit 
+			then t2
+			else failwith "mauvais type"
+		| If(cond, e1, e2)  (*peut-être la gestion du cas isNull(expr) *)
+		->	let f = t_exp env in 
+			let tc, t1, t2 = f cond, f e1, f e2 in 
+			if tc = TBool && t1 = t2 (* pê prendre le cas de t1 sous-type de t2 *) 
+			then t1
+			else failwith "mauvais type"
+		| While(cond, e)
+		->	let tc, t = t_exp env cond, t_exp env e in
+			if tc = TBool && t = TUnit 
+			then TUnit
+			else failwith "mal typé"
 	in
 	failwith "pas implémenté" 
 end
