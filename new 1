@@ -1,0 +1,8 @@
+Opérateur : 
+	Trois cas : x ref <-> x 
+	x -> (x -> _)
+	_ -> (_ -> _)
+	
+	app : 
+		si type_retour = Fun(Vartyp(_), Fun(Vartyp(), t) )
+		 

@@ -80,48 +80,47 @@ module BaseTypeChecker = struct
   exception Bad_type of string 
   module Env = Map.Make(String)
   type type_env = SimpleTypes.typ Env.t
-	
-  (* opération -> type des opérations 
-	+ Fonction 'get' (prenant le compteur en paramètre) générant un nouveau type si nécessaire 
-    
-	Opérateurs :
-		+ -
-		= < >
-		&& || 
-		... ? 
-	*) 
-	let get_op_type op cpt_type = 
-		match op with 
-		| "+" -> TFun(TInt, TFun(TInt, TInt))
-		| "=" 
-		| "<" 
-		| ">"
-			-> 	let t = TVar(cpt_type()) in 
-				TFun(t, TFun(t, TBool))  
-		| "&&" 
-		| "||" 
-			-> TFun(TBool, TFun(TBool, TBool)) 
-  
+
   let rec type_expression (env: type_env) (e: expression) : typ =
     match e with
     | Int(_) -> TInt
     | Bool(_) -> TBool
     | Unit -> TUnit
     | Var(str) -> Env.find str env
-    | App(e1, e2) -> let t1, t2 = type_expression env e1, type_expression env e2 in
-                     begin
-                       match t1 with
-                       | TFun(tparam, tret) -> if tparam = t2 (* Ici : gérer les variables de type relevenat des opérateurs quand nécessaire *) 
-                                               then tret
-                                               else raise (Bad_type("Mauvais type de param"))
-                       | _ -> raise (Bad_type("Application d'une valeur non fonctionnelle"))
-                     end
-    | Fun(nom_var, type_var, term) -> let nouvel_evt = Env.add (nom_var) (type_var) (env) in
+    | App(e1, e2)
+		->  let t2 = type_expression env e2 in 
+			let t1 = 
+				(match e1 with 
+					| Op(s) 
+					->(	match s with 
+						| "+" 
+						-> 	TFun(TInt, TFun(TInt, TInt))
+						| "&&" | "||" 
+						->	TFun(TBool, TFun(TBool, TBool))
+							
+						|"=" | "<" | ">" 
+						->	TFun(t2, TFun(t2, TBool))
+						| "ref" -> Tfun(t2, TRef(t2))
+						| "deref" 
+						->(	match t2 with 
+							|TRef(t) -> Tfun(TRef(t), t) 
+							| _ -> failwith "")
+						)
+							
+					_ -> type_expression env e1 
+				)
+			in (match t1 with 
+				| TFun(tparam, tret)
+				-> 	if tparam = t2 
+					then tret 
+					else failwith "meh")
+			
+	| Fun(nom_var, type_var, term) -> let nouvel_evt = Env.add (nom_var) (type_var) (env) in
                                       let nouveau_type = type_expression nouvel_evt term in
                                       TFun(type_var, nouveau_type)
     | Let(nom_var, e1, e2) -> let type_var = type_expression env e1 in
                               type_expression (Env.add nom_var type_var env) e2
-    | Op(str) -> failwith "flemme" 
+    | Op(op) -> failwith "wtf" 
     | Pair(e1, e2) -> TPair(type_expression env e1, type_expression env e2)
     | NewRef(e) -> TRef(type_expression env e)
     | Sequence(e1, e2) -> let type_e1 = type_expression env e1 in (* type_e1 ?= () *) 
@@ -175,7 +174,7 @@ module RawAST = struct
     (** Conditionnelle [if c then e₁ else e₂] *)
     | While  of expression * expression
                                (** Boucle [while c do e done] *)
-     
+	
   let rec (str_expression : expression -> string) =
     function
     | Int(i) -> string_of_int i
@@ -211,7 +210,7 @@ module BaseTypeReconstruction = struct
   let type_operateur mk_cpt op =
 	match op with 
 	| _ -> failwith "pas implémenté" 
-
+  
 
   (* fonction de création d'un compteur *) 
   let mk_cpt_vt () =
@@ -220,10 +219,20 @@ module BaseTypeReconstruction = struct
      -> let s = string_of_int !x in
         x := (!x)+1;
         s)
+	
 
   let str_contrainte (t1, t2) =
     "(" ^ (str_of_type t1) ^ ") ?= (" ^ (str_of_type t2) ^ ")"
-    
+  let type_operateur fun_cpt op =
+	match op with 
+	| "+" -> TFun(TInt, TFun(TInt, TInt)) 
+	| "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
+	| "<" | "=" 
+	-> 	let vt = TVar(fun_cpt()) in 
+		TFun(ct, TFun(vt, TBool)  	
+	| "deref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)  
+	| "ref" -> let vt = TVar(fun_cpt ()) in TFun(vt, TRef(vt))
+	
   let print_ensemble_contraintes =
     CSet.iter (fun c -> print_string ("\n" ^ (str_contrainte c) ^ "\n~~~"))
     
@@ -235,14 +244,13 @@ module BaseTypeReconstruction = struct
       
       Procéder en deux étapes : génération de contraintes sur les types,
       puis résolution par unification.
-   *)
+   **)
 
   let type_expression (env: type_env) (e: expression) : SimpleTypes.typ =
-
     (** I. Génération des contraintes sur l'expression **)
     let generation_contraintes (env:type_env) (e:expression) : (CSet.t * SimpleTypes.typ) =
       (* génération de variables de types uniques *)
-      let get_new_vartyp = mk_cpt_vt () in
+      let get_new_vartyp = mk_cpt_vt () iny
       (* ensemble des contraintes *) 
       let constraints = ref CSet.empty in 
       (* ajoute une contrainte à l'ensemble *) 
@@ -252,7 +260,7 @@ module BaseTypeReconstruction = struct
         | Int(i) -> TInt
         | Int(_) -> TInt
         | Bool(_)-> TBool
-        | Unit -> TUnit
+        | Unit   -> TUnit
         | Var(nom_var) ->  (Env.find nom_var evt)
 
         | App(f_exp, param_exp)
@@ -269,8 +277,8 @@ module BaseTypeReconstruction = struct
                type_retour
              end
         | Fun(nom_var, expr)
-(* On définit le type du paramètre *)
-          -> let type_param = TVar(get_new_vartyp()) in
+		(* On définit le type du paramètre *)
+        -> 	let type_param = TVar(get_new_vartyp()) in
              (* environnement visible depuis l'intérieur de la fonction : 
                 ajout de la variable de type du paramètre *)
              let env' = Env.add nom_var type_param evt in
@@ -280,8 +288,8 @@ module BaseTypeReconstruction = struct
           -> let type_s = build_cst env e1 in
              let evt' = Env.add (s) (type_s) evt in
              build_cst evt' e2
-        | Op(str)
-          -> failwith "flemme"
+        | Op(op)
+          -> type_operateur get_new_vartyp op
         | Pair(e1, e2) -> TPair(build_cst evt e1, build_cst evt e2)
         | Newref(e) -> TRef(build_cst evt e)
         | Sequence(e1, e2)
@@ -425,12 +433,23 @@ module PTypeChecker = struct
   let mk_cpt () =
     let x = ref 0 in
     (fun ()
-     -> let s = string_of_int !x in
-        x := (!x)+1;
-        s)
+		-> let s = string_of_int !x in
+			x := (!x)+1;
+			s)
+	
   let rec print_contraintes cset =
     CSet.iter (fun (a,b) -> print_string ((str_of_type a) ^ " ?= " ^ (str_of_type b) ^ "\n____\n" )
-
+ 
+  let type_operateur fun_cpt op =
+	match op with 
+	| "+" -> TFun(TInt, TFun(TInt, TInt)) 
+	| "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
+	| "<" | "=" 
+	-> 	let vt = TVar(fun_cpt()) in 
+		TFun(ct, TFun(vt, TBool)  	
+	| "deref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)  
+	| "ref" -> let vt = TVar(fun_cpt ()) in TFun(vt, TRef(vt))
+	
   let type_expression (env: simple_evt) (e : expression) : typ =
     (* Transition d'un type simple à un type simple, mais de bon type  *)
     let mk_new_str_vartyp = mk_cpt() in
@@ -502,7 +521,7 @@ module PTypeChecker = struct
              let evt'' = Env.add s gen_e env in
              gen evt'' e2
 
-        | Op(str) -> failwith "flemme"
+        | Op(op) -> type_operateur mk_new_str_vartyp op
         | Pair(e1, e2) -> TPair(gen env e1, gen env e2)
         | Newref(e) -> TRef(gen env e)
         | Sequence(e1, e2)
@@ -692,8 +711,7 @@ module SubTypeChecker = struct
   
   module Env = Map.Make(String)
   type type_env = typ Env.t
-
-	let is_subtype t1 t2 =
+  let is_subtype t1 t2 = 
 	failwith "to do" 
   let type_expression env expr = 
 	let rec t_exp env exp = 
@@ -702,7 +720,7 @@ module SubTypeChecker = struct
 		| Bool -> TBool
 		| Unit -> TUnit 
 		| Var(v) -> Env.find e env 
-		| App(e1, e2) 
+		| App(e1, e2)
 			-> 	let t1 = t_exp env e1 in
 				let t2 = t_exp env e2 in 
 				let (t_param, t_retour) = 
