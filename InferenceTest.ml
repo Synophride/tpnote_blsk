@@ -91,11 +91,14 @@ module Test_exo2 = struct
     let op_eq = App( App(Op("="), i), j) in
     let op_eqbool = App( App(Op("="), bt), bt) in
     let condit = If(op_b, i, op_add) in
-    let unit_exp = App(Op("!"), r_int) in
+    let deref = App(Op("!"), r_int) in
+    let unit_exp = App(App(Op(":="), r_int), j) in 
     let seq = Sequence(unit_exp, pair) in
     let w = While(op_eq, unit_exp) in
+    let nicolas = Let("x", f, App(Var "x", Var "x")) in 
     let tab_exps = [r_int; r_bool; pair; plet; op_add; op_b; op_eq;
-                    op_eqbool; condit; unit_exp; seq; w] in
+                    op_eqbool; condit; deref; unit_exp; seq; w; nicolas] in
+
     let _  = List.iter
                (fun exp -> let t = type_expression evt exp in
                            let s_exp  = str_expression exp in

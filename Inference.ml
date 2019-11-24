@@ -319,7 +319,8 @@ module BaseTypeReconstruction = struct
              let texp = build_cst evt e in
              begin
                add_cst (tb, TBool);
-               (* on part du principe que e est un effet de bord et ne doit pas renvoyer de valeur *)
+               (* on part du principe que e est un effet
+                  de bord et ne doit pas renvoyer de valeur *)
                add_cst (texp, TUnit);
                TUnit
              end
@@ -336,7 +337,7 @@ module BaseTypeReconstruction = struct
       let t_retour_gen = ref t_exp in 
       (* liste des contraintes à éliminer *) 
       let constraints = ref cset in
-
+      
       let cset_map f cset = CSet.fold (fun c cset -> CSet.add (f c) cset) cset CSet.empty in
       let constraints_map f = (constraints := cset_map f (!constraints)) in 
       (** suppression et ajout de contraintes dans l'ensemble des contraintes **)
@@ -413,9 +414,9 @@ module BaseTypeReconstruction = struct
       (!t_retour_gen)
     in
     let (contraintes, t) = generation_contraintes env e in
-    (*let _ = print_string "CONTRAINTES:\n\n\n" in
+    let _ = print_string "CONTRAINTES:\n\n\n" in
     let _ = print_ensemble_contraintes contraintes in
-    let _ = print_string "FIN DES CONTRAINTES\n" in*)
+    let _ = print_string "FIN DES CONTRAINTES\n" in
     let  type_retour = resolution_contraintes contraintes t in
     type_retour
 
@@ -781,66 +782,51 @@ module SubTypeChecker = struct
 	else match t2 with
 		| TMaybe(t) -> is_subtype t1 t 
 		| _ -> false 
-  let failwith s = raise (Bad_type(s))
+
 
   let type_expression env expr = 
-	let rec t_exp env exp = 
-		match exp with 
-		| Int(_) -> TInt
-		| Bool(_) -> TBool
-		| Unit -> TUnit 
-		| Var(v) -> Env.find v env
-		| App(e1, e2)
-		-> 	let t2 = t_exp env e2 in 
-			let t1 =
-				match e1 with 
-				| Op(s) 
-				->(	match s with
-					| "+" -> TFun(TInt, TFun(TInt, TInt))
-					| "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
-					| "=" | "<"   -> TFun(t2, TFun(t2, TBool))
-					| "deref"
-					-> failwith "je sais pas ce que c'est censé faire" 
-					| ":="
-					->	let t2' = match t2 with | TRef(t) -> t | _ -> failwith "patate" in  
-						TFun(t2, TFun(t2', TUnit))
-					| _ -> failwith "todo : autres opérateurs" 
-				)
-				| _ -> t_exp env e1 
-				in
-			let (t_param, t_retour) = 
-				match t1 with
-				| TFun(tp, tret) -> (tp, tret)
-				| _ -> failwith "eugneu mauvais types" 
-				in
-			if t_param = t1 || is_subtype t2 t_param
-			then t_retour
-			else failwith "Mauvais type"
-		| Fun(id, t_param, e)
-		-> TFun(t_param, t_exp (Env.add id t_param env) e)
-		| Let(id, e1, e2) -> t_exp (Env.add id (t_exp env e1) env) e2  
-		| Op(op) -> failwith "pas implémenté" 
-		| Pair(e1, e2) 
-		-> 	let f = t_exp env 
-			in TPair(f e1, f e2) 
-		| NewRef(t) -> TRef(TMaybe(t))
-		| Sequence(e1, e2)
-		-> 	let f = t_exp env in 
-			let t1, t2 = f e1, f e2 in 
-			if t1 = TUnit 
-			then t2
-			else failwith "mauvais type"
-		| If(cond, e1, e2)  (*peut-être la gestion du cas isNull(expr) *)
-		->	let f = t_exp env in 
-			let tc, t1, t2 = f cond, f e1, f e2 in 
-			if tc = TBool && t1 = t2 (* pê prendre le cas de t1 sous-type de t2 *) 
-			then t1
-			else failwith "mauvais type"
-		| While(cond, e)
-		->	let tc, t = t_exp env cond, t_exp env e in
-			if tc = TBool && t = TUnit 
-			then TUnit
-			else failwith "mal typé"
-	in
-	failwith "pas implémenté" 
+    let rec t_exp env exp = 
+      match exp with 
+      | Int(_) -> TInt
+      | Bool(_) -> TBool
+      | Unit -> TUnit 
+      | Var(v) -> Env.find v env
+      | App(e1, e2)
+        -> failwith "todo" 
+
+      | Fun(s, t, e)
+        -> let t_e = t_exp (Env.add s t env) e in
+           TFun(t, t_e) 
+      | Let(s, e1, e2)
+        -> let t1 = t_exp env e1 in
+           t_exp (Env.add s t1 env) e2
+           
+      | Op(s) -> failwith "méchant user"
+               
+      | Pair(e1, e2)-> TPair(t_exp env e1, t_exp env e2)
+      | NewRef(t) -> TRef(TMaybe(t))
+      | Sequence(a, b)
+        ->  let t_a, t_b = t_exp env a , t_exp env b in
+            if t_a = TUnit
+            then t_b
+            else raise (Bad_type("Séquence qui a pas le type unit"))
+      | If(ex, e1, e2) -> failwith "todo"
+      | While(c, i)
+        -> let tc, ti = t_exp env c, t_exp env i in
+           (* todo : gérer le cas IsNull (exp) *) 
+           if tc = TBool
+           then if ti = TUnit then TUnit else raise (Bad_type("Instruction non unit dans le while"))
+           else raise (Bad_type("condition non booléenne")
+                          
+    and gestion_app env e1 e2 =
+      let t2 = t_exp env e2 in
+      let t1 =
+        match e1 with
+        | Op(op)
+          ->(  match op with
+               | "+" -> TFun(TInt, TFun(TInt, TInt))
+               | "=" | "<"
+               -> TFun(t2, 
+    in
+    failwith "pas implémenté" 
 end
