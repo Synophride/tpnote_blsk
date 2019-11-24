@@ -212,7 +212,6 @@ module BaseTypeReconstruction = struct
   module Env = Map.Make(String)
   type type_env = SimpleTypes.typ Env.t 
   type t_contrainte = SimpleTypes.typ * SimpleTypes.typ (* None = Tout type *) 
-
   module CSet = Set.Make(struct type t = t_contrainte let compare = compare end)
 
   (* fonction de création d'un compteur *) 
@@ -250,7 +249,6 @@ module BaseTypeReconstruction = struct
       Procéder en deux étapes : génération de contraintes sur les types,
       puis résolution par unification.
    **)
-
   let type_expression (env: type_env) (e: expression) : SimpleTypes.typ =
     (** I. Génération des contraintes sur l'expression **)
     let generation_contraintes (env:type_env) (e:expression) : (CSet.t * SimpleTypes.typ) =
@@ -773,7 +771,14 @@ module SubTypeChecker = struct
   
   module Env = Map.Make(String)
   type type_env = typ Env.t
-  
+  (* supprime les couches inutiles de TMaybe *)
+  let rec minim t = 
+    match t with 
+    | TMaybe(t')
+        -> (match t' with | TMaybe(t'') -> minim t' | _ -> t' )   
+    | _ -> t
+
+
   (* renvoie true si t1 <= t2 *)
   (* probablement de la merde *)
   let rec is_subtype t1 t2 = 
@@ -814,49 +819,46 @@ module SubTypeChecker = struct
             if t_a = TUnit
             then t_b
             else raise (Bad_type("Séquence qui a pas le type unit"))
-      | If(c, e1, e2)
-	->(match c with
-	   | App(Op("IsNull"), exp) -> failwith "pas implémenté" 
-	   | _ -> let tc, t1, t2 = t_exp env c, t_exp env t1, t_exp env t2 in 
-		  if tc = TBool (* tester les cas de sous_type ? *) 
-		  then generalisation t1 t2
-		  else raise (Bad_type("condition non booléenne"))
-	  )	 
-      | While(c,  i)
+      | If(c, e1, e2)
+        -> gestion_if env c e1 e2 
+	  | While(c,  i)
         -> let tc, ti = t_exp env c, t_exp env i in
            if tc = TBool
            then if ti = TUnit then TUnit else raise (Bad_type("Instruction non unit dans le while"))
-           else raise (Bad_type("condition non booléenne")
-                          
-    and gestion_app env e1 e2 =
-      let t2 = t_exp env e2 in
-      let t1 =
-        match e1 with
-        | Op(op)
-          ->(  match op with
-               | "+" -> TFun(TInt, TFun(TInt, TInt))
-               | "=" | "<"
-               -> TFun(t2, TFun(t2, TBool))
-	       | "IsNull"
-		-> (match t2 with
-			| TMaybe(t) -> TFun(t2, TBool)
-			| _ -> raise (Bad_type("dfshkldgshklgskl"))
-		)
-		| "!" -> (match t2 with TRef(t) -> TFun(t2, t) | _ -> raise (Bad_type("emljmlj")) )
-		| ":=" 	-> (match t2 with TRef(t) -> TFun(t2, TFun(t, TUnit)))
-		| "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
-		| _ -> failwith "opérateur pas implémenté"
-	)
-	| _ -> t_exp env e1
-      in 
-      let m = 
-          match t1 with 
+           else raise (Bad_type("condition non booléenne"))
+  and gestion_if env c e1 e2 = 
+    failwith "to do" 
+  and gestion_app env e1 e2 =
+    let t2 = t_exp env e2 in
+    let t1 =
+      match e1 with
+      | Op(op)
+      ->( match op with
+          | "+" -> TFun(TInt, TFun(TInt, TInt))
+          | "=" | "<"
+          -> TFun(t2, TFun(t2, TBool))
+	      | "IsNull"
+          ->( match t2 with
+              | TMaybe(t) -> TFun(t2, TBool)
+   		      | _ ->  raise (Bad_type("dfshkldgshklgskl"))
+		    )
+		  | "!" -> (match t2 with TRef(t) -> TFun(t2, t) | _ -> raise (Bad_type("emljmlj")) )
+		  | ":=" 	-> (match t2 with TRef(t) -> TFun(t2, TFun(t, TUnit)))
+          | "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
+		  | _ -> failwith "opérateur pas implémenté"
+	    )
+     | _ -> t_exp env e1
+    in 
+    let m = 
+      match t1 with 
 	  (* type de param théorique, peut être plus étendu que le type réel *)
 	  | TFun(tparam, tret) 
 		-> if t2 = tparam || is_subtype t2 tparam 
 		   then tret
 		   else raise (Bad_type("mauvais type de param"))
-	  | _ ->  raise (Bad_type("application d'un type non fonctionnel"))
-    in m
-    failwith "pas implémenté"
+      | _ -> raise (Bad_type("application d'un type non fonctionnel"))
+    in 
+    m 
+  in ()  
+
 end
