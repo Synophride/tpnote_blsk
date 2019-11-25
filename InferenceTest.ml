@@ -215,7 +215,7 @@ module Exo3 = struct
 end ;; 
 
 
-(* 
+
 print_string ("\n ~~~~~~~~~~~~~~~~~~~~~~~~~~ \n ~~~~~~~~ EXO 1 ~~~~~~~~ " ^
   "\n ~~~~~~~~~~~~~~~~~~~~~~~~~ \n\n");
 Exercice1.f_test ();
@@ -234,7 +234,7 @@ Test_exo2bonus.f_test ();
 let _ = read_line() in () ;
 
 print_string ("\n ~~~~~~~~~~~~~~~~~~~~~~~~~~ \n ~~~~~~~~EXO 3~~~~~~~~ " ^
-                "\n ~~~~~~~~~~~~~~~~~~~~~~~~~ \n\n");*)
+                "\n ~~~~~~~~~~~~~~~~~~~~~~~~~ \n\n");
 Exo3.f_test();
 
 let _ = read_line in ();

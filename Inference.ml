@@ -1,4 +1,4 @@
-exception Bad_type of string
+exception Bad_type 
 
 module SimpleTypes = struct    
   type typ =
@@ -89,7 +89,8 @@ module BaseTypeChecker = struct
       ->  let t2 = type_expression env e2 in 
 	  let t1 = 
 	    (match e1 with 
-	     | Op(s) 
+	     | Op(s) (* étant donné qu'on a besoin du type du premier paramètre pour déterminer 
+                        le type de l'expression, traitement du cas op dans l'application *) 
 	       ->(	match s with 
 			| "+" 
 			  -> 	TFun(TInt, TFun(TInt, TInt))
@@ -98,16 +99,21 @@ module BaseTypeChecker = struct
 			      
 			|"=" | "<" | ">" 
 			 ->	TFun(t2, TFun(t2, TBool))
-			| "!" (* dé-référençage *)  
+			| "!" | "deref"(* dé-référençage *)  
 			  ->(	match t2 with 
 				|TRef(t) -> TFun(TRef(t), t)
-				| _ -> (raise (Bad_type("a"))))
-                        | ":="
+				| _ -> raise Bad_type)
+                        | ":=" | "setref" 
                           ->(   match t2 with
                                 | TRef(t) -> TFun(t2, TFun(t, TUnit))
-                                | _ -> (raise (Bad_type("Affectation dans une valeur")))
+                                | _ -> raise (Bad_type)
 		            )
-                        | _ -> raise (Bad_type("opérateur pas implémenté"))
+                        | "fst"
+                          -> (match t2 with | TPair(t, _) -> t
+                                            | _ -> raise Bad_type
+                             )
+                        | "snd" -> (match t2 with | TPair(_,t) -> t | _ -> raise Bad_type) 
+                        | _ -> raise (Bad_type)
                  )
 	     | _ -> type_expression env e1 
 	    )
@@ -115,8 +121,8 @@ module BaseTypeChecker = struct
 	      | TFun(tparam, tret)
 		->   if tparam = t2 
 		     then tret 
-		     else raise (Bad_type("param pas du bon type"))
-              | _ -> raise (Bad_type(  "application d'une valeur non fonct"))
+		     else raise (Bad_type)
+              | _ -> raise (Bad_type)
              )
            
     | Fun(nom_var, type_var, term)
@@ -126,26 +132,26 @@ module BaseTypeChecker = struct
     | Let(nom_var, e1, e2)
       ->  let type_var = type_expression env e1 in
           type_expression (Env.add nom_var type_var env) e2
-    | Op(op) -> failwith "wtf" 
+    | Op(op) -> failwith ""
     | Pair(e1, e2) -> TPair(type_expression env e1, type_expression env e2)
     | NewRef(e) -> TRef(type_expression env e)
     | Sequence(e1, e2) -> let type_e1 = type_expression env e1 in
                           if type_e1 = TUnit
                           then type_expression env e2
-                          else raise (Bad_type("Sequence non unitaire"))
+                          else raise (Bad_type)
     | If(cond, e1, e2) -> let f = type_expression env in
                           if f cond <> TBool
-                          then raise (Bad_type("condition non booléenne"))
+                          then raise (Bad_type)
                           else let t1, t2 = f e1, f e2 in
                                if t1 = t2
                                then t1
-                               else raise (Bad_type("deux branches du if pas de meme type"))
+                               else raise (Bad_type)
     | While(c, e) -> let type_c = type_expression env c in
                      if type_c = TBool
                      then let te = type_expression env e in
                           if te = TUnit then TUnit
-                          else raise (Bad_type("Instruction non unit dans le while"))
-                     else raise (Bad_type("Condition non bool dans le while"))
+                          else raise (Bad_type)
+                     else raise (Bad_type)
 end
 
 
@@ -233,9 +239,11 @@ module BaseTypeReconstruction = struct
     | "<" | "=" 
       -> 	let vt = TVar(fun_cpt()) in 
 		TFun(vt, TFun(vt, TBool))
-    | "!" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)  
-    (*| "ref" -> let vt = TVar(fun_cpt ()) in TFun(vt, TRef(vt))*) 
-    | ":=" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt),  TFun(vt, TUnit))
+    | "!" | "deref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)  
+    | "ref" -> let vt = TVar(fun_cpt ()) in TFun(vt, TRef(vt))
+    | ":=" | "setref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt),  TFun(vt, TUnit))
+    | "fst" -> let vt = TVar(fun_cpt()) in TFun(TPair(vt, TVar(fun_cpt())), vt)
+    | "snd" -> let vt = TVar(fun_cpt()) in TFun(TPair(TVar(fun_cpt()), vt), vt)
     | _ -> failwith "opérateur pas implémenté"
   let print_ensemble_contraintes =
     CSet.iter (fun c -> print_string ("\n" ^ (str_contrainte c) ^ "\n~~~"))
@@ -265,7 +273,6 @@ module BaseTypeReconstruction = struct
         | Bool(_)-> TBool
         | Unit   -> TUnit
         | Var(nom_var) ->  (Env.find nom_var evt)
-
         | App(f_exp, param_exp)
           -> let type_f = build_cst evt f_exp in
              let type_param = build_cst evt param_exp in
@@ -322,7 +329,6 @@ module BaseTypeReconstruction = struct
                add_cst (texp, TUnit);
                TUnit
              end
-        | _ -> failwith "" 
       in
       let t = build_cst env e in
       (!constraints, t)
@@ -370,42 +376,35 @@ module BaseTypeReconstruction = struct
         match CSet.min_elt_opt (!constraints) with
         | None -> ()
         | Some(cst)
-          -> let _ = rm cst in
+          -> let _ = rm cst in (*effacement de la contrainte*)
              let a, b = cst in
-             let _ = if a = b
-                     then ()
-                     else
-                       match cst with
-                       | TVar(s), other 
-                         -> if other = TVar(s) (* tautologie, rien à faire *)
-                            then ()
-                                   (* Cas où un type est contenu dans lui même : insulter l'utilisateur *)
-                            else if contains s other 
-                            then
-                              raise (Bad_type("You have two parts of brain, 'left' and 'right'." ^
-                                                " In the left side, there's nothing right."^
-                                                  " In the right side, there's nothing left."))
-                            else (* On peut faire la substitution dans ce cas *)
-                              let _ = constraints_map
-                                        (fun (a,b) -> (substitution s other a,
-                                                       substitution s other b)) in
-                              (*     let _ = print_string "substitution de type \n" in
-                                let _ = print_string ((str_of_type (!t_retour_gen))^"\n") in
-                                let _ = print_string ("remplacement de " ^ s ^ " par " ^
-                                                        (str_of_type other) ^ " dans " ^
-                                                          (str_of_type (!t_retour_gen))  ^
-                                                            "\n") in *)
-                              let _ =  t_retour_gen := substitution s other (!t_retour_gen)
-                              in ()
+             let _ =
+               if a = b
+               then () 
+               else
+                 match cst with
+                 | TVar(s), other
+                   | other, TVar(s) 
+                   -> if other = TVar(s) (* tautologie, rien à faire *)
+                      then ()
+                             (* Cas où un type est contenu dans lui même : insulter l'utilisateur *)
+                      else if contains s other 
+                      then
+                        raise (Bad_type)
+                      else (* On peut faire la substitution dans ce cas *)
+                        let _ = constraints_map
+                                  (fun (a,b) -> (substitution s other a,
+                                                 substitution s other b)) in
+                        let _ =  t_retour_gen := substitution s other (!t_retour_gen)
+                        in ()
 
-                       | TPair(t1a, t1b), TPair(t2a, t2b) | TFun(t1a, t1b), TFun(t2a, t2b) 
-                         -> let _ = add (t1a, t2a) in 
-                            let _ = add (t1b, t2b) in ()
-                       | TRef(t1), TRef(t2)
-                         -> let _ = add (t1,t2) in ()
-                       | other, TVar(s) -> let _ = add (TVar(s), other) in ()
-                       | _ -> raise (Bad_type("Your birth certificate is an"^
-                                                " apology letter from the condom factory."))
+                 | TPair(t1a, t1b), TPair(t2a, t2b) | TFun(t1a, t1b), TFun(t2a, t2b) 
+                   -> let _ = add (t1a, t2a) in 
+                      let _ = add (t1b, t2b) in ()
+                 | TRef(t1), TRef(t2)
+                   -> let _ = add (t1,t2) in ()
+
+                 | _ -> raise (Bad_type)
              in res ()
       in
       let _ = res () in
@@ -419,22 +418,19 @@ module BaseTypeReconstruction = struct
     type_retour
 
 end
-                              
+
+
+(* exactement la même chose que l'exo 2, mis à part le traitement du let ... lors 
+de la génération de contraintes *) 
 module BaseTypeReconstructionBonus = struct
   
   open SimpleTypes
   open RawAST
-  exception Bad_type of string
   module Env = Map.Make(String)
   type type_env = SimpleTypes.typ Env.t 
-  type t_contrainte = SimpleTypes.typ * SimpleTypes.typ (* None = Tout type *) 
+  type t_contrainte = SimpleTypes.typ * SimpleTypes.typ 
 
   module CSet = Set.Make(struct type t = t_contrainte let compare = compare end)
-
-  let type_operateur mk_cpt op =
-    match op with 
-    | _ -> failwith "pas implémenté" 
-         
 
   (* fonction de création d'un compteur *) 
   let mk_cpt_vt () =
@@ -469,9 +465,13 @@ module BaseTypeReconstructionBonus = struct
     | "<" | "=" 
       -> 	let vt = TVar(fun_cpt()) in 
 		TFun(vt, TFun(vt, TBool))
-    | "deref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)  
+    | "!" | "deref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)  
     | "ref" -> let vt = TVar(fun_cpt ()) in TFun(vt, TRef(vt))
-    | _ -> failwith "opérateur pas implémenté" 
+    | ":=" | "setref" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt),  TFun(vt, TUnit))
+    | "fst" -> let vt = TVar(fun_cpt()) in TFun(TPair(vt, TVar(fun_cpt())), vt)
+    | "snd" -> let vt = TVar(fun_cpt()) in TFun(TPair(TVar(fun_cpt()), vt), vt)
+    | _ -> failwith "opérateur pas implémenté"
+         
   let print_ensemble_contraintes =
     CSet.iter (fun c -> print_string ("\n" ^ (str_contrainte c) ^ "\n~~~"))
     
@@ -615,9 +615,7 @@ module BaseTypeReconstructionBonus = struct
                                    (* Cas où un type est contenu dans lui même : insulter l'utilisateur *)
                             else if contains s other 
                             then
-                              raise (Bad_type("You have two parts of brain, 'left' and 'right'." ^
-                                                " In the left side, there's nothing right."^
-                                                  " In the right side, there's nothing left."))
+                              raise (Bad_type)
                             else (* On peut faire la substitution dans ce cas *)
                               let _ = constraints_map
                                         (fun (a,b) -> (substitution s other a,
@@ -637,8 +635,7 @@ module BaseTypeReconstructionBonus = struct
                        | TRef(t1), TRef(t2)
                          -> let _ = add (t1,t2) in ()
                        | other, TVar(s) -> let _ = add (TVar(s), other) in ()
-                       | _ -> raise (Bad_type("Your birth certificate is an"^
-                                                " apology letter from the condom factory."))
+                       | _ -> raise (Bad_type)
              in res ()
       in
       let _ = res () in
@@ -654,8 +651,6 @@ module BaseTypeReconstructionBonus = struct
 end
 
 
-
-(* exo 3 *)
 
 (**
    Exercice 3 : sous-typage.
@@ -748,8 +743,6 @@ module SubAST = struct
                         ^ "\nelse " ^ str_expression e2
     | While(eb, e)
       -> "While ( " ^ str_expression eb ^ " ) do \n " ^ str_expression e ^ " \n end \n"
-
-
 end
 
 (**
@@ -851,7 +844,7 @@ module SubTypeChecker = struct
     then minim t2
     else if is_subtype t2 t1 
     then minim t1
-    else raise (Bad_type("Généralisation foirée"))
+    else raise (Bad_type)
       
   let rec subst_var s eremp e =
     match e with
@@ -895,7 +888,7 @@ module SubTypeChecker = struct
         ->  let t_a, t_b = t_exp env a , t_exp env b in
             if t_a = TUnit
             then t_b
-            else raise (Bad_type("Séquence qui a pas le type unit"))
+            else raise (Bad_type)
       | If(c, e1, e2)
         -> gestion_if env c e1 e2 
       | While(c,  i)
@@ -903,8 +896,8 @@ module SubTypeChecker = struct
            if tc = TBool
            then if ti = TUnit
                 then TUnit
-                else raise (Bad_type("Instruction non unit dans le while"))
-           else raise (Bad_type("condition non booléenne"))
+                else raise (Bad_type)
+           else raise (Bad_type)
 
     (* gestion du cas de la conditionnelle *) 
     and gestion_if (env:type_env) (c:expression) (e1:expression) (e2:expression) : OptionTypes.typ = 
@@ -925,7 +918,7 @@ module SubTypeChecker = struct
                let t2 = t_exp env e2 in
                generalisation t1 t2
       else
-        raise (Bad_type("Condition non booléenne"))
+        raise (Bad_type)
 
     (* Gestion de l'application d'une expression à une autre *) 
     and gestion_app env e1 e2 =
@@ -942,7 +935,7 @@ module SubTypeChecker = struct
                     | TMaybe(t) -> TFun(minim t2, TBool)
    		    | _ -> TFun(t2, TBool)
 		  )
-	      | "!" -> (match t2 with TRef(t) -> TFun(t2, t) | _ -> raise (Bad_type("emljmlj")) )
+	      | "!" -> (match t2 with TRef(t) -> TFun(t2, t) | _ -> raise (Bad_type))
                      
               | "*" (* Fonction censée donner la valeur 
                        d'une référence, et planter
@@ -951,14 +944,14 @@ module SubTypeChecker = struct
                  (match t2 with
                   | TRef(TMaybe(t)) -> t
                   | TRef(t) -> t
-                  | _ -> raise (Bad_type("k"))
+                  | _ -> raise (Bad_type)
                  )
               | "valueOf"
                 -> TFun(t2, suppr_maybe t2)
 	      | ":="
                 -> (match t2 with
                       TRef(t) -> TFun(t2, TFun(t, TUnit))
-                    | _ -> raise (Bad_type("lkhlkhl")))
+                    | _ -> raise (Bad_type))
               | "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
 	      | _ -> failwith "opérateur pas implémenté"
 	    )
@@ -972,8 +965,8 @@ module SubTypeChecker = struct
 	| TFun(tparam, tret)
 	  -> if t2 = tparam || is_subtype (minim t2) (minim tparam)
 	     then tret
-	     else raise (Bad_type("mauvais type de param : " ^ str_of_type t2 ^ "\n\n" ^ str_of_type tparam ))
-        | _ -> raise (Bad_type("application d'un type non fonctionnel"))
+	     else raise (Bad_type)
+        | _ -> raise (Bad_type)
       in 
       m
     in
@@ -981,6 +974,7 @@ module SubTypeChecker = struct
     x
       
 end 
+
 
 module SubAST4 = struct
   open OptionTypes
@@ -991,14 +985,14 @@ module SubAST4 = struct
     | Var of string 
     | App    of expression * expression
     (** Application [e₁ e₂] *)
-    | Fun    of string * OptionTypes.typ * expression
+    | Fun    of string * expression
     (** Fonction [fun x:T -> e] *)
     | Let    of string * expression * expression
     (** Liaison [let x=e₁ in e₂] *)
     | Op     of string (** Opérateur *)
     | Pair   of expression * expression
     (** Paire [(e₁, e₂)] *)
-    | NewRef of OptionTypes.typ
+    | NewRef
     (** Création d'une référence non initialisée [newref T] *)
     | Sequence of expression * expression
     (** Séquence d'expressions [e₁; e₂] *)
@@ -1014,11 +1008,11 @@ module SubAST4 = struct
     | Unit -> "()"
     | Var(str) -> str
     | App(e1, e2) -> "( " ^ str_expression e1 ^ " ) ( " ^ str_expression e2 ^ " )"
-    | Fun(str,t, e) -> "fun (" ^ str ^ ": "^ (str_of_type t) ^ ") -> " ^ str_expression e
+    | Fun(str, e) -> ("fun(" ^ str ^ ") -> " ^ str_expression e) 
     | Let(str, e1, e2) -> "let " ^ str ^ " = " ^ str_expression e1 ^ " in \n" ^ str_expression e2
     | Op(str) -> str
     | Pair(e1, e2) -> "(" ^ str_expression e1 ^ ", " ^ str_expression e2 ^ " )"
-    | NewRef(t) -> str_of_type t ^ " ref"
+    | NewRef -> " NewRef"
     | Sequence(e1, e2) -> str_expression e1 ^ ";\n" ^ str_expression e2
     | If(eb, e1, e2) -> "if( " ^ str_expression eb
                         ^ " )\nthen " ^ str_expression e1
@@ -1026,6 +1020,185 @@ module SubAST4 = struct
     | While(eb, e)
       -> "While ( " ^ str_expression eb ^ " ) do \n " ^ str_expression e ^ " \n end \n"
 end
+               
 module Ex4 = struct
+  open OptionTypes
+  open SubAST4
+  module Env = Map.Make(String)
 
+  type type_env = typ Env.t
+  type contrainte =
+    | Eq of typ * typ
+    | SubT of typ * typ
+                      
+  module CSet = Set.Make(struct type t = contrainte let compare = compare end)
+
+  let type_operateur fun_cpt op =
+    match op with
+
+    | "+" -> TFun(TInt, TFun(TInt, TInt)) 
+    | "&&" | "||" -> TFun(TBool, TFun(TBool, TBool))
+    | "<" | "=" 
+      ->  let vt = TVar(fun_cpt()) in 
+	  TFun(vt, TFun(vt, TBool))
+    | "deref" | "!" -> let vt = TVar(fun_cpt()) in TFun(TRef(vt), vt)
+    | "IsNull" -> let vt = TVar(fun_cpt ()) in TFun(vt, TBool)
+    (* todo : ajouter d'autres opérateurs *) 
+    | _ -> failwith "opérateur pas implémenté" 
+
+  (* fonction de création d'un compteur *) 
+  let mk_cpt () =
+    let x = ref 0 in
+    (fun ()
+     -> let s = string_of_int !x in
+        x := (!x)+1;
+        s)
+  (* Supprime les couches inutiles
+     de TMaybe/"minimise" un type *)
+  let rec minim t = 
+    match t with 
+    | TMaybe(t')
+      -> (match t' with | TMaybe(t'') -> minim t' | _ -> t' )   
+    | _ -> t
+         
+  (* renvoie true si t1 <= t2 *)
+  let rec is_subtype t1 t2 = 
+    if t1 = t2 
+    then true 
+    else match t2 with
+	 | TMaybe(t) -> is_subtype t1 t
+	 | _ -> false
+
+  let generation_contraintes (env : type_env) (exp:expression) : (CSet.t * typ) =
+    let mk_vartyp = mk_cpt() in
+    let contraintes = ref CSet.empty in
+    let add c = contraintes := CSet.add c (!contraintes) in
+
+    let rec mk_cst (evt:type_env) (exp : expression) : typ =
+      match exp with
+      | Int _ -> TInt
+      | Bool _ -> TBool
+      | Unit -> TUnit
+      | Var(nom_var) -> Env.find nom_var evt
+      | App(f, x)
+        -> let type_f = mk_cst evt f in
+           let type_x = mk_cst evt x in
+           let type_retour = TVar(mk_vartyp()) in
+           let c = SubT(TFun(type_x, type_retour), type_f) in
+           let _ = add c in
+           type_retour
+      | Fun(nom_var, e)
+        -> let type_param = TVar(mk_vartyp()) in
+           let env' = Env.add nom_var type_param env in
+           let type_ret = mk_cst env' e in
+           TFun(type_param, type_ret)
+           
+      | Let(s, e1, e2)
+        -> let t1 = mk_cst env e1 in
+           let evt' = Env.add s t1 evt in
+           mk_cst evt' e2
+      | Op(s) -> type_operateur mk_vartyp s
+      | Pair(e1, e2) -> TPair(mk_cst evt e1, mk_cst evt e2) 
+      | Sequence(e1, e2)
+        -> let t1 = mk_cst evt e1 in
+           let c1 = Eq(t1, TUnit) in
+           let _ = add c1 in
+           mk_cst evt e2
+      | If(c, e1, e2)
+        -> let _ = add (Eq(mk_cst evt c, TBool)) in
+           let t1 = mk_cst evt e1 in
+           let t2 = mk_cst evt e2 in
+           let _ = add (Eq(t1, t2)) in
+           t1
+      | While(c, e)
+        ->  let _ = add (Eq(mk_cst evt c, TBool)) in
+            let _ = add (Eq(mk_cst evt e, TUnit)) in
+            TUnit
+            
+      | NewRef -> TMaybe(TVar(mk_vartyp()))
+    in
+    let t = mk_cst env exp in
+    (!contraintes, t)
+
+  let cset_map f cset = CSet.fold (fun c cset -> CSet.add (f c) cset) cset CSet.empty 
+
+                
+  let substitution typed type_remp t =
+    let rec sub t =
+      if t = typed
+      then type_remp
+      else
+        match t with
+        | TFun(t1, t2) -> TFun(sub t1, sub t2)
+        | TPair(t1, t2) -> TPair(sub t1, sub t2)
+        | TRef(t) -> TRef(sub t)
+        | TMaybe(t) -> TMaybe(sub t)
+        | _ -> t
+    in sub t
+  let c_substitution typed type_remp c =
+    match c with
+    | Eq(a, b) -> Eq(substitution typed type_remp a, substitution typed type_remp b)
+    | SubT(a, b) -> SubT(substitution typed type_remp a, substitution typed type_remp b)
+                  
+  let rec generalisation t1 t2 =
+    if t1 = t2 
+    then minim t1
+    else if is_subtype t1 t2 
+    then minim t2
+    else if is_subtype t2 t1 
+    then minim t1
+    else raise (Bad_type)
+
+  let resolution_contraintes t contraintes =
+    let typ = ref t in
+    let contraintes = ref contraintes in
+    let cset_replace t1 t2 =
+      contraintes := cset_map (c_substitution t1 t2) (!contraintes) in
+    let typ_replace t1 t2 = t := substitution t1 t2 (!t) in
+    let rep t1 t2 = (cset_replace t1 t2; typ_replace t1 t2) in 
+
+    let add c = contraintes := CSet.add c (!contraintes) in
+    let del c = contraintes := CSet.remove c (!contraintes) in
+
+    let rec red_cst c =
+      let _ = del c in 
+      match c with
+      | Eq(t1, t2)
+        ->
+         let t1, t2 = minim t1, minim t2  in 
+         if is_subtype t1 t2 
+         then cset_replace t1 t2 
+         else if is_subtype t2 t1
+         then cset_replace t2 t1
+         else (  match t1,t2 with
+                 | TVar(n), o | o, TVar(n)
+                   -> rep t1 o
+                    
+                 | TMaybe(t1), TMaybe(t2) 
+                   | TRef(t1), TRef(t2) -> add (Eq(t1, t2))
+
+                 | TPair(t1a, t1b), TPair(t2a, t2b)
+                   | TFun(t1a, t1b), TFun(t2a, t2b)
+                   -> let _ = add (Eq(t1a, t2a)) in
+                      let _ = add (Eq(t1b, t2b)) in
+                      ()
+                 | _ -> raise (Bad_type)
+              )
+      (* t1 doit être un sous type de c2 *)
+      | SubT(t1, t2)
+        -> let t1, t2 = minim t1, minim t2 in
+           if is_subtype t1 t2 then ()
+           else
+             match t1, t2 with
+             | TVar(str_t1), other
+               -> ()
+            
+   
+                               
+
+
+    in ()     
+                            
+           
+    
 end 
