@@ -74,6 +74,17 @@ module Test_exo2 = struct
   open BaseTypeReconstruction
   open RawAST
   open SimpleTypes
+  let write_exp e =
+    let s_exp = str_expression e in 
+    let s_ret = ("Expression : \n " ^ s_exp
+                ^ "\n Type :\n " ^
+                  (try
+                     let t = type_expression (Env.empty) e in
+                     str_of_type t
+                   with Bad_type _ -> "exn"
+                  ) ^ "\n ____ \n")
+    in
+    print_string s_ret
 
   let evt = Env.empty 
   let f_test () =
@@ -100,11 +111,7 @@ module Test_exo2 = struct
                     op_eqbool; condit; deref; unit_exp; seq; w; nicolas] in
 
     let _  = List.iter
-               (fun exp -> let t = type_expression evt exp in
-                           let s_exp  = str_expression exp in
-                           let s_type = str_of_type t in
-                           let str = "------\n" ^ s_exp ^ "\n__\n" ^ s_type ^ "\n-" in
-                           print_string str)
+               write_exp
                tab_exps 
 
     in ()
@@ -116,6 +123,19 @@ module Test_exo2bonus = struct
   open BaseTypeReconstructionBonus
   open RawAST
   open SimpleTypes
+
+  let write_exp e =
+    let s_exp = str_expression e in 
+    let s_ret = ("Expression : \n " ^ s_exp
+                ^ "\n Type :\n " ^
+                  (try
+                     let t = type_expression (Env.empty) e in
+                     str_of_type t
+                   with Bad_type _ -> "exn"
+                  ) ^ "\n ____ \n")
+    in
+    print_string s_ret
+
   let f_test ()= 
     let environnement = Env.empty in    
     let i = Int(214) in
@@ -150,17 +170,8 @@ module Test_exo2bonus = struct
 
     let lm = [e1; e2] in
     let _ = List.iter
-      (fun e ->
-        let _ = print_string ((str_expression e) ^
-                                "\n______\n" )  in 
-        let _ = try
-            let _ = type_expression environnement e in
-            assert(false) 
-          with (Bad_type(str)) -> print_string ("ERROR" ^ str ^ "\n")
-        in
-        print_string ("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-      )
-      lm          
+              write_exp 
+              lm          
     in ()
 end ;;
 
@@ -169,15 +180,42 @@ module Exo3 = struct
   open OptionTypes
   open SubAST
   open SubTypeChecker
-
+  let write_exp e =
+    let s_exp = str_expression e in 
+    let s_ret = ("Expression : \n " ^ s_exp
+                ^ "\n Type :\n " ^
+                  (try
+                     let t = type_expression (Env.empty) e in
+                     str_of_type t
+                   with Bad_type (s) -> ("exn : " ^ s) 
+                  ) ^ "\n ____ \n")
+    in
+    print_string s_ret
+                     
+    
   let env=Env.empty
         
   let f_test () =
-    () 
+    let i = Int(3) in
+    let ref_int = NewRef(TInt) in
+    let tmaybe = App(Op("!"), ref_int) in
+    let f_int = Fun("x", TInt, Var("x")) in
+    let f_opt = Fun("x", TMaybe(TInt),
+                    If(App(Op("IsNull"), Var("x")),
+                       Int(3),
+                       App(Op("valueOf"), Var("x")))) in
+    let apply_fopt_tmaybe = Let("y", i, App(f_opt, Var"y")) in
+    let test_list = [i; ref_int; tmaybe; f_int; f_opt; apply_fopt_tmaybe] in
+    let _ = List.iter write_exp test_list in
+    ()
+
+                
+                  
      
 end ;; 
 
-                
+
+(* 
 print_string ("\n ~~~~~~~~~~~~~~~~~~~~~~~~~~ \n ~~~~~~~~ EXO 1 ~~~~~~~~ " ^
   "\n ~~~~~~~~~~~~~~~~~~~~~~~~~ \n\n");
 Exercice1.f_test ();
@@ -193,4 +231,10 @@ let _ = read_line() in ();
 print_string ("\n ~~~~~~~~~~~~~~~~~~~~~~~~~~ \n ~~~~~~~~EXO 2.5~~~~~~~~ " ^
   "\n ~~~~~~~~~~~~~~~~~~~~~~~~~ \n\n");
 Test_exo2bonus.f_test ();
-let _ = read_line() in () ; 
+let _ = read_line() in () ;
+
+print_string ("\n ~~~~~~~~~~~~~~~~~~~~~~~~~~ \n ~~~~~~~~EXO 3~~~~~~~~ " ^
+                "\n ~~~~~~~~~~~~~~~~~~~~~~~~~ \n\n");*)
+Exo3.f_test();
+
+let _ = read_line in ();
